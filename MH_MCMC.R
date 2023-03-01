@@ -1,34 +1,40 @@
-#Define a mixture of two Gaussian distributions
-f <- function(x, mu1, mu2, sigma1, sigma2, w) {
-  w * dnorm(x, mean = mu1, sd = sigma1) + (1 - w) * dnorm(x, mean = mu2, sd = sigma2)
+#Define target distribution(sinus function)
+target <- function(x) {
+  sin(x)
 }
 
-#proposal distribution function
-proposal <- function(x, sd) {
-  rnorm(1, mean = x, sd = sd)
+# Define the proposal distribution(a mixture of two gaussian distribution)
+proposal <- function(x, mu, sigma, w) {
+  if (runif(1) < w) {
+    rnorm(1, mean = x, sd = 1)
+  } else {
+    rnorm(1, mean = x - mu, sd = sigma)
+  }
+}
+
+likeli <- function(x, mu, m, sigma, w) {
+  w*dnorm(x, mean = m, sd = 1) + (1-w)*dnorm(x-mu, mean = m, sd = sigma)
 }
 
 #initialize
-set.seed(123)
+set.seed(121)
 n <- 1000
 x <- numeric(n)
 accept <- numeric(n)
 
-mu1 <- 1
-mu2 <- -1
-sigma1 <- 1
-sigma2 <- 2
-w <- 0.5
-sd = 0.5
+mu <- 0.1
+sigma <- 0.5
+w <- 0.7
 
 #generate samples using the Metropolis-Hastings algorithm
 for (i in 2:n) {
   # Generate candidate sample
-  y <- proposal(x[i-1], sd)
+  y <- proposal(x[i-1],  mu, sigma, w)
   
   # Calculate acceptance ratio
-  alpha <- min(1, f(y, mu1, mu2, sigma1, sigma2, w) / f(x[i-1], mu1, mu2, sigma1, sigma2, w) * dnorm(x[i-1], mean = y, sd = sd) / dnorm(y, mean = x[i-1], sd = sd))
-  
+    alpha <- min(1, target(y) * likeli(y, mu, x[i-1],sigma, w) /
+                 (target(x[i-1])*likeli(x[i-1], mu, y,sigma, w) ))
+
   # Decide whether to accept or reject the candidate sample
   if (runif(1) < alpha) {
     x[i] <- y
@@ -38,7 +44,6 @@ for (i in 2:n) {
     accept[i] <- 0
   }
   
-
 }
 
 # Print the acceptance rate
