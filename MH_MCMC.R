@@ -17,12 +17,12 @@ likeli <- function(x, mu, m, sigma, w) {
 }
 
 #initialize
-set.seed(121)
-n <- 1000
+set.seed(121) 
+n <- 10000
 x <- numeric(n)
 accept <- numeric(n)
 
-mu <- 0.1
+mu <- 2
 sigma <- 0.5
 w <- 0.7
 
@@ -49,9 +49,11 @@ for (i in 2:n) {
 # Print the acceptance rate
 cat("Acceptance rate:", mean(accept), "\n")
 
+par(mfrow = c(1,1))
 # Plot the samples and the target distribution
-hist(x, breaks = 30, freq = FALSE, main = "mixture of two normal distributions")
-curve(f(x, mu1, mu2, sigma1, sigma2, w), add = TRUE, col = 'red', lwd = 2)
+hist(x, breaks = 100, freq = FALSE, main = "mixture of two normal distributions")
+curve(target(x), add = TRUE, col = 'red', lwd = 2)
+abline(v = mean(x[-(1:burnIn)]))
 
 library(mixtools)
 fit <- normalmixEM(x, k = 2) #we are fitting a mixture of two Gaussian distributions
@@ -59,3 +61,9 @@ fit <- normalmixEM(x, k = 2) #we are fitting a mixture of two Gaussian distribut
 curve(fit$lambda[1] * dnorm(x, fit$mu[1], sqrt(fit$sigma[1]^2)) +
         fit$lambda[2] * dnorm(x, fit$mu[2], sqrt(fit$sigma[2]^2)),
       from = min(x), to = max(x), add = TRUE, col = "blue")
+
+
+#plot(x[-(1:burnIn)], type = "l", xlab="" , main = "Chain values of x", )
+
+
+
