@@ -52,20 +52,38 @@ hmc <- function(U, grad_U, epsilon, L, current_q) {
 }
 
 set.seed(111)
-n_iter <- 1000
+n_iter <- 10000
+#initialization
 q_hmc <- numeric(n_iter)
-q_init <- 10
-mu_target <- 10
+mu <- seq(1,10,length=4)
+q_init <- 6
+
 sigma1 <- 1
 sigma2 <- 2
 w <- 0.6
-mu <-2
 
-for (i in 1:n_iter) {
-  q_hmc[i] = hmc(U = U, grad_U = grad_U, epsilon = 0.25, L = 3, current = q_init)
-  q_init = q_hmc[i]
+par(mfrow = c(2,2))
+
+for (j in 1:length(mu)){
+  
+  mu_target <- mu[j]
+  
+  for (i in 1:n_iter) {
+    q_hmc[i] = hmc(U = U, grad_U = grad_U, epsilon = 0.25, L = 5, current = q_init)
+    q_init = q_hmc[i]
+  }
+  burnin <- 1000
+  x <- q_hmc[-(1:burnin)]
+  hist(x, breaks = 50, freq = FALSE, main = substitute(paste("mixture gap mu=", a), list(a = mu_target) ))
+  curve(target(x), add = TRUE, col = "red", lwd = 2)
+  
+  library(mixtools)
+  #we are fitting a mixture of two Gaussian distributions
+  fit <- normalmixEM(x, k = 2)
+  # Plot the fitted mixture model
+  curve(fit$lambda[1] * dnorm(x, fit$mu[1], sqrt(fit$sigma[1]^2)) +
+          fit$lambda[2] * dnorm(x, fit$mu[2], sqrt(fit$sigma[2]^2)),
+        from = min(x), to = max(x), add = TRUE, col = "blue")
+  
+  plot(x[-(1:burnin)], type = "l", xlab = "", main = "Chain values of q_hmc")
 }
-
-plot(q_hmc ,col = "blue")
-
-
