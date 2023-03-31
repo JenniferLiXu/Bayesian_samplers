@@ -25,7 +25,7 @@ hmc <- function(U, epsilon, L, current_q) {
     # Make a half step for momentum at the end
     p <- p - epsilon / 2 * U(q, returnGrad = TRUE)
     # Negate momentum at end of trajectory to make the proposal symmetric
-    p <- -p
+    #p <- -p
     # Evaluate potential and kinetic energies at start and end of trajectory
     current_U <- U(chain[i-1], returnGrad = FALSE)
     current_K <- sum(current_p^2) / 2
