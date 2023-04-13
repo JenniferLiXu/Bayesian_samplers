@@ -20,10 +20,10 @@ hmc <- function(U, epsilon, L, current_q) {
       # Make a full step for the position
       q <- q + epsilon * p 
       # Make a full step for the momentum, except at end of trajectory
-      if (i != L) p <- p - epsilon * U(q, returnGrad = TRUE)
+      # Make a half step for momentum at the end
+      p <- p - epsilon * U(q, returnGrad = TRUE)/(1 + (j==L))
     }
-    # Make a half step for momentum at the end
-    p <- p - epsilon / 2 * U(q, returnGrad = TRUE)
+  
     # Negate momentum at end of trajectory to make the proposal symmetric
     #p <- -p
     # Evaluate potential and kinetic energies at start and end of trajectory
@@ -40,6 +40,6 @@ hmc <- function(U, epsilon, L, current_q) {
       accept[i] <- 0 #Reject
     }
   }
-  return(chain)
+  return(list(chain = chain, accept_rate = accept))
   
 }
