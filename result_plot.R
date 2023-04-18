@@ -28,6 +28,7 @@ chain_char <- function(chain){
   swaps <- 0
   swap_lengths <- c()
   current_length <- 0
+  state <- integer(length(chain))
   state[1] <- ifelse(chain[1] >= average, "above", "below")
   
   for (i in 2:length(chain)) {
@@ -36,7 +37,6 @@ chain_char <- function(chain){
       swaps <- swaps + 1
       swap_lengths[swaps] <- current_length
       current_length <- 1
-      current_state <- state
     } else {
       current_length <- current_length + 1
     }
@@ -53,9 +53,9 @@ chain_char <- function(chain){
 
 #initialize
 set.seed(123)
-n_iter <- 10000
-mu <- seq(6,12,length=4)
-#mu <- c(7)
+n_iter <- 200
+#mu <- seq(10,18,length=4)
+mu <- c(7)
 sigma1 <- 1
 sigma2 <- 2
 w <- 0.6
@@ -71,7 +71,7 @@ for (j in 1:length(mu)){
   #generate samples using the Metropolis-Hastings algorithm
   #x <- MH_MCMC(target, proposal, 0, n_iter)
   source("~/Desktop/SemesterProject/Bayesian_samplers/HMC_MixGaussian.R")
-  result <- hmc(U = U, epsilon = 0.25, L =5, current_q = 6)
+  result <- hmc(U = U, epsilon = 0.5, L = 5, current_q = 0)
   x <- result$chain
   #target \int \sin(x) p(x) dx
   esti_sin <- mean(sin(x))
@@ -94,10 +94,12 @@ for (j in 1:length(mu)){
   #we are fitting a mixture of two Gaussian distributions
   #fit <- normalmixEM(x, k = 2)
   # Plot the fitted mixture model
-  #curve(fit$lambda[1] * dnorm(x, fit$mu[1], sqrt(fit$sigma[1]^2)) +
-  #        fit$lambda[2] * dnorm(x, fit$mu[2], sqrt(fit$sigma[2]^2)),
-   #     from = min(x), to = max(x), add = TRUE, col = "blue")
-  burnin <- 2000
+  curve(fit$lambda[1] * dnorm(x, fit$mu[1], sqrt(fit$sigma[1]^2)) +
+          fit$lambda[2] * dnorm(x, fit$mu[2], sqrt(fit$sigma[2]^2)),
+        from = min(x), to = max(x), add = TRUE, col = "blue")
+
+  burnin <- 100
   plot(x[-(1:burnin)], type = "l", xlab = "", main = "Chain values of x", )
-  print(paste("The estimated weight:",chain_char(x[-(1:burnin)])$w_above))
+  print(paste("The estimated weight w1:",chain_char(x[-(1:burnin)])$w_above))
 }
+
