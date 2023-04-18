@@ -22,7 +22,7 @@ U <- function(q, returnGrad = FALSE) {
 
 #initialize
 set.seed(123)
-n_iter <- 2000
+n_iter <- 1000
 #mu <- seq(10,18,length=4)
 mu <- c(7)
 sigma1 <- 1
@@ -81,18 +81,30 @@ new_target <- function(x, returnGrad = FALSE) {
 }
 
 # Define the potential energy function U' and its gradient for T'
+'''
 U_prime <- function(x, returnGrad = FALSE) {
   if(returnGrad){
     return(1/new_target(x) * new_target(x, returnGrad = TRUE) )
   }
   else return(-log(new_target(x)))
 }
+'''
+
+U_prime <- function(x, returnGrad = FALSE) {
+  if(returnGrad){
+    derivative <- (log(new_target(x - 1e-5)) -log(new_target(x + 1e-5)) ) / (2 * 1e-5)
+    return(derivative)       
+  }
+  else return(-log(new_target(x)))
+}
+
 
 # Run HMC for the new target distribution T'
+#samples_prime <- hmc(U = U_prime, epsilon = 0.1, L = 10, current_q = 0)
 samples_prime <- hmc(U = U_prime, epsilon = 0.1, L = 10, current_q = 0)
 x_prime <- samples_prime$chain
 hist(x_prime, breaks = 30, freq = FALSE, main = substitute(paste("mixture gap mu=", a), list(a = mu_target) ))
-
+plot(x_prime)
 # Find q with the highest U
 highest_U_idx_prime <- which.max(sapply(x_prime, U_prime))
 q_with_highest_U_prime <- x[highest_U_idx_prime]
@@ -143,6 +155,8 @@ U_double_prime <- function(x, returnGrad = FALSE) {
 # Run HMC for the updated target distribution T''
 set.seed(42)
 init_q <- 0
-n_samples <- 1000
+n_samples <- 100
 samples_double_prime <- hmc(U = U_double_prime, epsilon = 0.1, L = 10, current_q = init_q)
 x_double_prime <- samples_double_prime$chain
+hist(x_double_prime, breaks = 30, freq = FALSE, main = substitute(paste("mixture gap mu=", a), list(a = mu_target) ))
+plot(U(x_double_prime))
