@@ -1,10 +1,10 @@
 #Define a mixture of two Gaussian distributions as our target T
-target <- function(x, returnGrad = FALSE) {
-  if(returnGrad){
-    return(-(x-2)/sigma1 * w * dnorm(x, mean = 2, sd = sigma1)
-           + -(x-2+mu_target)/sigma2 * (1 - w) * dnorm(x, mean = 2 - mu_target, sd = sigma2))
-  }
-  else return(w * dnorm(x, mean = 2, sd = sigma1) + (1 - w) * dnorm(x, mean = 2 - mu_target, sd = sigma2))
+target <- function(x) {
+  sample_1 = w * dnorm(x, mean = 2, sd = sigma1)
+  sample_2 = (1 - w) * dnorm(x, mean = 2 - mu_target, sd = sigma2)
+  distri = sample_1 + sample_2
+  grad = -(x-2)/sigma1 * sample_1 + -(x-2+mu_target)/sigma2  * sample_2
+  return(list(distri = distri, grad = grad))
 }
 
 #proposal distribution function
@@ -13,11 +13,13 @@ proposal <- function(x) {
 }
 
 #potential energy
-U <- function(q, returnGrad = FALSE) {
-  if(returnGrad){
-    return(1/target(q, returnGrad = FALSE) *target(q,returnGrad = TRUE) )
-  }
-  else return(-log(target(q, returnGrad = FALSE))) 
+U <- function(q) {
+  target_q <- target(q)
+  #Return U
+  distri = -log(target_q$distri)
+  #Return dU
+  grad = 1/target_q$distri * target_q$grad
+  return(list(distri = distri, grad = grad))
 }
 
 #initialize
@@ -41,27 +43,26 @@ x <- samples$chain
 par(mfrow = c(2,2))
 #Print out the histogram of the samples
 hist(x, breaks = 30, freq = FALSE, main = substitute(paste("mixture gap mu=", a), list(a = mu_target) ))
-plot(U(x))
+plot(x, U(x)$distr)
 
 # Find q with the highest U
-highest_U_idx <- which.max(sapply(x, U))
-q_with_highest_U <- x[highest_U_idx]
+(highest_U_idx <- which.max(sapply(x, function(x) -U(x)$distri)))
+(q_with_highest_U <- x[highest_U_idx])
 
-# Perform numerical optimization (gradient decent) to find the peak of U
-opt_result <- steep_descent(q_with_highest_U, function(x) -U(x), function(x) -U(x, returnGrad = TRUE))
-peak_U <- -opt_result$fmin
-peak_pos <- opt_result$xmin
+# Perform numerical optimization to find the peak of U
+opt_result <- steep_descent(q_with_highest_U, function(x) U(x)$distri, function(x) U(x)$grad)
+(peak_U <- opt_result$fmin)
+(peak_pos <- opt_result$xmin)
 
-# Find the peak of U (minimum of -U)
-#opt_result <- optimize(function(x) -U(x), interval = range(x))
+#opt_result <- optimize(function(x) U(x)$distri, interval = range(x), maximum = FALSE)
+#peak_U <- opt_result$objective
 #peak_pos <- opt_result$minimum
-#peak_U <- -opt_result$objective
 
 # Estimate the quadratic form using gradient of U near the peak
 # the second derivative of U using finite difference method
-hessian <- (U(peak_pos + 1e-5, returnGrad = TRUE)  - U(peak_pos - 1e-5, returnGrad = TRUE) ) / (2 * 1e-5)
-G1_mean <- peak_pos
-G1_sd <- sqrt(-1 / hessian)
+(hessian <- (U(peak_pos + 1e-5)$grad  - U(peak_pos - 1e-5)$grad ) / (2 * 1e-5))
+(G1_mean <- peak_pos)
+(G1_sd <- sqrt(-1 / hessian))
 
 # Print the results
 cat("Estimated first Gaussian component G1:\n")
@@ -72,51 +73,49 @@ G1 <- function(x) {
   dnorm(x, mean = G1_mean, sd = G1_sd)
 }
 
+plot(x,G1(x))
+
 # Define the new target distribution T' = T/G1
-new_target <- function(x, returnGrad = FALSE) {
-  if(returnGrad){
-    return(target(x, returnGrad = TRUE) / G1(x) )
-  }
-  else return (target(x) / G1(x) )
+new_target <- function(x) {
+  target_x <- target(x)
+  distri = target_x$distri / G1(x) 
+  grad = target_x$grad / G1(x)
+  return(list(distri = distri, grad = grad))
 }
+
+plot(x,new_target(x)$distri)
 
 # Define the potential energy function U' and its gradient for T'
-'''
-U_prime <- function(x, returnGrad = FALSE) {
-  if(returnGrad){
-    return(1/new_target(x) * new_target(x, returnGrad = TRUE) )
-  }
-  else return(-log(new_target(x)))
-}
-'''
-
-U_prime <- function(x, returnGrad = FALSE) {
-  if(returnGrad){
-    derivative <- (log(new_target(x - 1e-5)) -log(new_target(x + 1e-5)) ) / (2 * 1e-5)
-    return(derivative)       
-  }
-  else return(-log(new_target(x)))
+U_prime <- function(x) {
+  new_target_x = new_target(x)
+  distri = -log(new_target_x$distri)
+  #grad = (log(new_target(x - 1e-5)$distri) -log(new_target(x + 1e-5)$distri) ) / (2 * 1e-5)
+  grad = 1/new_target_x$distri * new_target_x$grad
+  return(list(distri = distri, grad = grad))
 }
 
+plot(x, U_prime(x)$distr)
 
 # Run HMC for the new target distribution T'
 #samples_prime <- hmc(U = U_prime, epsilon = 0.1, L = 10, current_q = 0)
 samples_prime <- hmc(U = U_prime, epsilon = 0.1, L = 10, current_q = 0)
 x_prime <- samples_prime$chain
 hist(x_prime, breaks = 30, freq = FALSE, main = substitute(paste("mixture gap mu=", a), list(a = mu_target) ))
-plot(x_prime)
+plot(x_prime, U(x_prime)$distri - log(G1(x_prime)))
+
+
 # Find q with the highest U
-highest_U_idx_prime <- which.max(sapply(x_prime, U_prime))
-q_with_highest_U_prime <- x[highest_U_idx_prime]
+(highest_U_idx_prime <- which.max(sapply(x_prime, function(x) -U_prime(x)$distri)))
+(q_highest_U_prime <- x[highest_U_idx_prime])
 
 # Perform numerical optimization (gradient decent) to find the peak of U
-opt_result_prime <- steep_descent(q_with_highest_U_prime, function(x) -U_prime(x), function(x) -U_prime(x, returnGrad = TRUE))
+opt_result_prime <- steep_descent(q_highest_U_prime, function(x) U_prime(x)$distri, function(x) U_prime(x)$grad)
 (peak_U_prime <- -opt_result_prime$fmin)
 (peak_pos_prime <- opt_result_prime$xmin)
 
 # Estimate the quadratic form using gradient of U' near the new peak
 # the second derivative of U using finite difference method
-hessian_prime <- (U_prime(peak_pos + 1e-5, returnGrad = TRUE)  - U_prime(peak_pos - 1e-5, returnGrad = TRUE) ) / (2 * 1e-5)
+hessian_prime <- (U_prime(peak_pos + 1e-5)$grad  - U_prime(peak_pos - 1e-5)$grad ) / (2 * 1e-5)
 
 # Determine the position of the new peak and its quadratic form (second Gaussian G2)G2_mean <- peak_pos_prime
 G2_mean <- peak_pos_prime
@@ -135,28 +134,29 @@ nu_2 <- 1 - nu_1
 M <- function(x) {
   nu_1 * dnorm(x, G1_mean, G1_sd) + nu_2 * dnorm(x, G2_mean, G2_sd)
 }
+plot(x,M(x))
 
 # Define the new target distribution T'' = T/M
-target_double_prime <- function(x, returnGrad = FALSE) {
-  if(returnGrad){
-    target(x, returnGrad = TRUE) / M(x)
-  }
-  else target(x) / M(x)
+target_double_prime <- function(x) {
+  distri = target(x)$distri / M(x)
+  grad = target(x)$grad / M(x)
+  return(list(distri = distri, grad = grad))
 }
 
+plot(x, target_double_prime(x)$distri)
+
 # Define the potential energy function U'' and its gradient for T''
-U_double_prime <- function(x, returnGrad = FALSE) {
-  if(returnGrad){
-    return(1/target_double_prime(x) * target_double_prime(x, returnGrad = TRUE) )
-  }
-  else return(-log(target_double_prime(x)))
+U_double_prime <- function(x) {
+  target_double_prime_x = target_double_prime(x)
+  distri = -log(target_double_prime_x$distri)
+  grad =  1/target_double_prime_x$distri * target_double_prime_x$grad
+  return(list(distri = distri, grad = grad))
 }
 
 # Run HMC for the updated target distribution T''
 set.seed(42)
-init_q <- 0
-n_samples <- 100
-samples_double_prime <- hmc(U = U_double_prime, epsilon = 0.1, L = 10, current_q = init_q)
+n_samples <- 1000
+samples_double_prime <- hmc(U = U_double_prime, epsilon = 0.1, L = 10, current_q = 0)
 x_double_prime <- samples_double_prime$chain
 hist(x_double_prime, breaks = 30, freq = FALSE, main = substitute(paste("mixture gap mu=", a), list(a = mu_target) ))
-plot(U(x_double_prime))
+plot(U(x_double_prime)$distri)

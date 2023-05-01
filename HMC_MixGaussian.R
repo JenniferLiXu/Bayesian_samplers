@@ -17,21 +17,24 @@ hmc <- function(U, epsilon, L, current_q) {
     
     # Leapfrog method: 
     # First make a half step for momentum 
-    p <- p - epsilon / 2 * U(q, returnGrad = TRUE)  
+    #U_q <- U(q)
+    p <- p - epsilon / 2 * U(q)$grad  
     for (j in 1:L) {
       # Make a full step for the position
       q <- q + epsilon * p 
       # Make a full step for the momentum
       # Make a half step for momentum at the end
-      p <- p - epsilon * U(q, returnGrad = TRUE)/(1 + (j==L))
+      #U_q <- U(q)
+      p <- p - epsilon * U(q)$grad /(1 + (j==L))
     }
 
     # Negate momentum at end of trajectory to make the proposal symmetric
     p <- -p
     # Evaluate potential and kinetic energies at start and end of trajectory
-    current_U <- U(chain[i-1], returnGrad = FALSE)
+    #U_chain <- U(chain[i-1])
+    current_U <- U(chain[i-1])$distri
     current_K <- sum(current_p^2) / 2
-    proposed_U <- U(q, returnGrad = FALSE)
+    proposed_U <- U(q)$distri
     proposed_K <- sum(p^2) / 2
     
     accept_prob <- exp((current_U + current_K) - (proposed_U + proposed_K))
