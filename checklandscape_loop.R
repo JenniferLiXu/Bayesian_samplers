@@ -1,3 +1,13 @@
+#initialize
+set.seed(120)
+n_iter <- 400
+mu <- c(5)
+sigma1 <- 0.5
+sigma2 <- 1
+w <- 0.3
+g_info = c(0,0,0)
+mu_target <- mu
+
 #target T
 target <- function(x, returnGrad = TRUE) {
   sample_1 = w * dnorm(x, mean = 2, sd = sigma1)
@@ -13,9 +23,10 @@ target <- function(x, returnGrad = TRUE) {
 
 #potential energy
 U <- function(q, returnGrad = TRUE) {
-  distri = - log(target(q, returnGrad = FALSE))
+  target_q = target(q)
+  distri = - log(target_q$distri)
   if(returnGrad){
-    grad = - 1 / target(q, returnGrad = FALSE)* target(q)$grad
+    grad = - 1 / target_q$distri* target_q$grad
     return(list(distri = distri, grad = grad))
   }
   else return(distri) 
@@ -51,10 +62,12 @@ G <- function(x, g_info) {
   return(list(distri = distri, grad = grad))  
 }
 
-Gaussian_component <- function(x, U, peakU, g_info){
+#Gaussian component
+Gaussian_component <- function(peakU){
   # Estimate a Gaussian component
-  G_component <- G(x, g_info)
-  height <- G(peakU$mean,g_info)$distri
+  G_component <- G(peakU$mean, c(peakU$mean, peakU$sd, 1))
+  position = peakU$mean
+  height <- G_component$distri
   
   return(list(mean = peakU$mean, sd = peakU$sd, height = height))
 }
@@ -73,27 +86,36 @@ M <- function(x) {
   return(list(distri = distri, grad = grad))
 }
 
-
-#initialize
-set.seed(120)
-n_iter <- 400
-mu <- c(5)
-sigma1 <- 0.5
-sigma2 <- 1
-w <- 0.3
-
-mu_target <- mu
-
 library(pracma)
 source("HMC_MixGaussian.R")
 par(mfrow = c(2,2))
 
 max_iterations <- 3
 
+# Replace the target distribution T with a tempered distribution T' = T / G
+# Adjusted targetNew function
+targetNew <- function(x, returnGrad, g_info, targetParams) {
+  G_x = G(x, g_info)
+  distri = targetParams$distri - G_x$distri
+  grad = targetParams$grad - G_x$grad
+  return(list(distri = distri, grad = grad))
+}
+
+# Adjusted UNew function
+UNew <- function(x, returnGrad, g_info, U_x) {
+  G_x = G(x, g_info)
+  distri = U_x$distri + log(G_x$distri)
+  if(returnGrad){
+    grad = U_x$grad + G_x$grad/G_x$distri
+    return(list(distri = distri, grad = grad))
+  }
+  else return(distri)
+}
+
 # Run the loop
-for (i in 1:max_iterations) {
+for (i in 1:2) {
   # Run a short HMC chain to find a point with high potential energy U
-  samples <- hmc(U = U, epsilon = 0.1, L = 10, current_q = 0)
+  samples <- hmc(U = UNew, epsilon = 0.1, L = 10, current_q = 0)
   x <- samples$chain
   
   #Print out the histogram of the samples
@@ -101,10 +123,11 @@ for (i in 1:max_iterations) {
        main = substitute(paste("mixture gap mu=", a), list(a = mu_target)))
   plot(x, U(x)$distri)
   
-  peakU <- peak(x,U)
+  peakU <- peak(x,UNew)
   g_info <- c(peakU$mean, peakU$sd, 1)
+  print(g_info)
   
-  components <- Gaussian_component(x, U, peakU, g_info)
+  components <- Gaussian_component(peakU)
   print(components)
   
   # Add the Gaussian component to the list
@@ -115,27 +138,8 @@ for (i in 1:max_iterations) {
   mixture_weights <- sapply(gaussians, function(x) x$height / total_height)
   
   #Store the parameters of the target distribution
-  targetParams <- target(x)
-  
-  G_x = G(x, g_info)
-  
-  # Replace the target distribution T with a tempered distribution T' = T / G
-  # Define the potential energy function U' and its gradient for T'
-  target <- function(x, returnGrad = TRUE){
-    distri = targetParams$distri - G_x$distri
-    grad = targetParams$grad - G_x$grad
-    return(list(distri = distri, grad = grad))
-  }
-  
-  U <- function(x ,returnGrad = TRUE) {
-    U_x = U(x)
-    distri = U_x$distri + log(G_x$distri)
-    if(returnGrad){
-      grad = U_x$grad + G_x$grad/G_x$distri
-      return(list(distri = distri, grad = grad))
-    }
-    else return(distri)
-  }
+  targetParams <- targetNew(x)
+
 }
 
 
@@ -165,4 +169,3 @@ samples_double_prime <- hmc(U = U_double_prime, epsilon = 0.1, L = 10, current_q
 x_double_prime <- samples_double_prime$chain
 hist(x_double_prime, breaks = 30, freq = FALSE, main = substitute(paste("mixture gap mu=", a), list(a = mu_target) ))
 plot(U(x_double_prime)$distri)
-
