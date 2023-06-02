@@ -82,17 +82,6 @@ par(mfrow = c(2,2))
 
 max_iterations <- 3
 
-# Adjusted UNew function by using U+log(M)
-UNew <- function(x, M, returnGrad = TRUE) {
-  M_x = M(x)
-  U_x = U(x)
-  distri = U_x$distri + log(M_x$distri)
-  if(returnGrad){
-    grad = U_x$grad + M_x$grad/M_x$distri
-    return(list(distri = distri, grad = grad))
-  }
-  else return(distri)
-}
 
 #Initialize
 set.seed(120)
@@ -111,13 +100,23 @@ components <-list(mean = 0, sd = 0, height = 0)
 gaussians <- list(components)
 
 # Run the loop
-for (i in 1:1) {
+for (i in 1:2) {
   
   if (i == 1){
     UNew = U
   }
   else {
-    UNew = UNew
+    # Adjusted UNew function by using U+log(M)
+    UNew <- function(x, returnGrad = TRUE) {
+      M_x = M(x)
+      U_x = U(x)
+      distri = U_x$distri + log(M_x$distri)
+      if(returnGrad){
+        grad = U_x$grad + M_x$grad/M_x$distri
+        return(list(distri = distri, grad = grad))
+      }
+      else return(distri)
+    }
   }
 
   # Run a short HMC chain to find a point with high potential energy U
@@ -143,6 +142,8 @@ for (i in 1:1) {
   # Calculate mixture weights
   total_height <- sum(sapply(gaussians, function(x) x$height)) 
   mixture_weights <- sapply(gaussians, function(x) x$height / total_height)
+  
+  M = M
 }
 
 
