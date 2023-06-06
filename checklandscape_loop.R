@@ -22,16 +22,16 @@ U <- function(q, returnGrad = TRUE) {
   else return(distri) 
 }
 
-#Find the value of the highest potential energy U and the mean and sd of the peak
-peak <- function(x, U, M) {
+#Find the value of the highest potential energy U and estimate a Gaussian component
+estimate_gaussian <- function(x, U, M , T) {
   # Find q with the highest U
   highest_U_idx <- which.max(sapply(x, function(x) -U(x)$distri))
   q_with_highest_U <- x[highest_U_idx]
   
   #Method "BFGS" is a quasi-Newton method (also known as a variable metric algorithm)
   # Replace the target distribution T with a tempered distribution T' = T - M
-  opt_result <- optim(q_with_highest_U, function(x) -target(x)$distri + M(x)$distri, 
-                      function(x) -target(x)$grad + M(x)$grad, 
+  opt_result <- optim(q_with_highest_U, function(x) -T(x)$distri, 
+                      function(x) -T(x)$grad, 
                       method ="BFGS",hessian = TRUE)
   peak_U <- opt_result$value
   peak_pos <- opt_result$par
@@ -46,7 +46,7 @@ peak <- function(x, U, M) {
 }
 
 #Use g_info(=c(mean, sd, weight)) to generate a gaussian distribution function G
-G <- function(x, g_info) {
+gaussian_pdf <- function(x, g_info) {
   distri = g_info[3] * dnorm(x, mean = g_info[1], sd = g_info[2])
   grad = - (x - g_info[1])/g_info[2] * distri
   return(list(distri = distri, grad = grad))  
@@ -55,7 +55,7 @@ G <- function(x, g_info) {
 #Gaussian components, which will be put into a list
 Gaussian_component <- function(peakU){
   # Estimate a Gaussian component
-  G_component <- G(peakU$mean, c(peakU$mean, peakU$sd, 1))
+  G_component <- gaussian_pdf(peakU$mean, c(peakU$mean, peakU$sd, 1))
   position = peakU$mean
   height <- G_component$distri
   
@@ -70,8 +70,8 @@ M <- function(x) {
     component <- gaussians[[i]]
     weight <- mixture_weights[i]
     info <- c(component$mean, component$sd, weight)
-    distri <- distri + G(x, info)$distri
-    grad <- grad + G(x, info)$grad
+    distri <- distri + gaussian_pdf(x, info)$distri
+    grad <- grad + gaussian_pdf(x, info)$grad
   }
   return(list(distri = distri, grad = grad))
 }
@@ -80,7 +80,7 @@ library(pracma)
 source("HMC_MixGaussian.R")
 par(mfrow = c(2,2))
 
-max_iterations <- 3
+max_iterations <- 10
 
 
 #Initialize
@@ -99,11 +99,21 @@ mixture_weights <- 1
 components <-list(mean = 0, sd = 0, height = 0)
 gaussians <- list(components)
 
+
+# Define a threshold for the weight below which the loop should stop
+weight_threshold <- 0.02
+
+#Include a distance threshold
+distance_threshold <- 0.1
+# Initialize counter for skipped iterations
+skip_counter = 0
+max_skips = 3  # Stop if we skip this many times in a row
+
 # Run the loop
-for (i in 1:2) {
-  
+for (i in 1:6) {
   if (i == 1){
     UNew = U
+    T = target
   }
   else {
     # Adjusted UNew function by using U+log(M)
@@ -128,12 +138,26 @@ for (i in 1:2) {
        main = substitute(paste("mixture gap mu=", a), list(a = mu_target)))
   plot(x, UNew(x)$distri)
   
-  #find the peak of U and peak information
-  peakU <- peak(x, UNew, M)
+  #find the estimate_gaussian of U and peak information
+  peakU <- estimate_gaussian(x, UNew, M, T)
   g_info <- c(peakU$mean, peakU$sd, 1)
   print(g_info)
   
-  components <- Gaussian_component(peakU)
+  # Check if the new mean is too close to an existing one
+  existing_means <- sapply(gaussians, function(x) x$mean)
+  if (any(abs(existing_means - g_info[1]) < distance_threshold)) {
+    print(paste("Mean of Gaussian component", i, "is too close to an existing one. Skipping this component."))
+    skip_counter = skip_counter + 1  # Increase skip counter
+    if (skip_counter >= max_skips) {
+      print(paste("Skipped", max_skips, "iterations in a row. Stopping the loop."))
+      break
+    }
+    next
+  } else {
+    skip_counter = 0  # Reset skip counter if we didn't skip
+  }
+  
+  components <- Gaussian_component(peakU = peakU)
   print(components)
   
   # Add the Gaussian component to the list
@@ -143,7 +167,24 @@ for (i in 1:2) {
   total_height <- sum(sapply(gaussians, function(x) x$height)) 
   mixture_weights <- sapply(gaussians, function(x) x$height / total_height)
   
+  # Check if the weight of the current component is below the threshold
+  if (mixture_weights[i] < weight_threshold) {
+    print(paste("Weight of Gaussian component", i, "is below the threshold. Stopping the loop."))
+    break
+  }
+
   M = M
+  
+  T <- function(x, returnGrad = TRUE){
+    target_x = target(x)
+    distri = target_x$distri - M(x)$distri
+    if (returnGrad) {
+      grad = target_x$grad - M(x)$grad
+      return(list(distri = distri, grad = grad))
+    } else {
+      return(distri)
+    }
+  }  
 }
 
 
