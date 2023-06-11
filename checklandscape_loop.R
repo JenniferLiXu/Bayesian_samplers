@@ -23,19 +23,14 @@ U <- function(q, returnGrad = TRUE) {
 }
 
 #Find the value of the highest potential energy U and estimate a Gaussian component
-estimate_gaussian <- function(x, U, M , T) {
-  # Find q with the highest U
-  highest_U_idx <- which.max(sapply(x, function(x) -U(x)$distri))
-  q_with_highest_U <- x[highest_U_idx]
-  
+estimate_gaussian <- function(peak_pos, M , T) {
   #Method "BFGS" is a quasi-Newton method (also known as a variable metric algorithm)
   # Replace the target distribution T with a tempered distribution T' = T - M
-  opt_result <- optim(q_with_highest_U, function(x) -T(x)$distri, 
-                      function(x) -T(x)$grad, 
+  opt_result <- optim(peak_pos, function(x) -T(x)$distri, function(x) -T(x)$grad, 
                       method ="BFGS",hessian = TRUE)
   peak_U <- opt_result$value
   peak_pos <- opt_result$par
-  hessian <- optimHess(peak_pos, function(x) -target(x)$distri + M(x)$distri)
+  hessian <- optimHess(peak_pos, function(x) U(x)$distri) #Compute hessian using U
   
   # Estimate the quadratic form using gradient of U near the peak
   # the second derivative of U using finite difference method
@@ -45,36 +40,44 @@ estimate_gaussian <- function(x, U, M , T) {
   return(list(peak_U = peak_U, mean = mean, sd = sd))
 }
 
-#Use g_info(=c(mean, sd, weight)) to generate a gaussian distribution function G
+#Use g_info(=c(mean, sd, weight)) to generate a gaussian distribution function
 gaussian_pdf <- function(x, g_info) {
   distri = g_info[3] * dnorm(x, mean = g_info[1], sd = g_info[2])
   grad = - (x - g_info[1])/g_info[2] * distri
   return(list(distri = distri, grad = grad))  
-}
-
-#Gaussian components, which will be put into a list
-Gaussian_component <- function(peakU){
-  # Estimate a Gaussian component
-  G_component <- gaussian_pdf(peakU$mean, c(peakU$mean, peakU$sd, 1))
-  position = peakU$mean
-  height <- G_component$distri
-  
-  return(list(mean = peakU$mean, sd = peakU$sd, height = height))
-}
+}  
 
 # Define the mixture model M
 M <- function(x) {
   distri <- 0
   grad = 0
+  #log_distri = 0
+  #log_grad = 0
   for (i in 1:length(gaussians)) {
     component <- gaussians[[i]]
-    weight <- mixture_weights[i]
-    info <- c(component$mean, component$sd, weight)
-    distri <- distri + gaussian_pdf(x, info)$distri
-    grad <- grad + gaussian_pdf(x, info)$grad
+    info <- c(component$mean, component$sd, component$w)
+    g_new <- gaussian_pdf(x, info)
+    distri <- distri + g_new$distri
+    grad <- grad + g_new$grad
+    #log_distri <- log_distri + log(g_new$distri)
+    #log_grad <- log_grad + g_new$grad/g_new$distri
   }
   return(list(distri = distri, grad = grad))
+  #return(list(distri = distri, grad = grad, log_distri = log_distri, log_grad = log_grad))
 }
+
+#Update tempered taarget distribution 
+tempered_T <- function(x, returnGrad = TRUE){
+  target_x = target(x)
+  distri = target_x$distri - M(x)$distri
+  if (returnGrad) {
+    grad = target_x$grad - M(x)$grad
+    return(list(distri = distri, grad = grad))
+  } else {
+    return(distri)
+  }
+}
+
 
 library(pracma)
 source("HMC_MixGaussian.R")
@@ -88,36 +91,31 @@ set.seed(120)
 n_iter <- 400
 mu <- c(5)
 sigma1 <- 0.5
-sigma2 <- 1
-w <- 0.3
+sigma2 <- 0.8
+w <- 0.7
 
 mu_target <- mu
 
 # Initialize the g_info and the list of Gaussian components
 g_info <-c(0,0,0)
 mixture_weights <- 1
-components <-list(mean = 0, sd = 0, height = 0)
+components <-list(mean = 0, sd = 0, w = 0)
 gaussians <- list(components)
-
+total_likelihoods <- numeric(0)
 
 # Define a threshold for the weight below which the loop should stop
 weight_threshold <- 0.02
 
-#Include a distance threshold
-distance_threshold <- 0.1
-# Initialize counter for skipped iterations
-skip_counter = 0
-max_skips = 3  # Stop if we skip this many times in a row
-
 # Run the loop
 for (i in 1:6) {
+  i = 3
   if (i == 1){
-    UNew = U
+    Unew = U
     T = target
   }
   else {
     # Adjusted UNew function by using U+log(M)
-    UNew <- function(x, returnGrad = TRUE) {
+    U_prime <- function(x, returnGrad = TRUE) {
       M_x = M(x)
       U_x = U(x)
       distri = U_x$distri + log(M_x$distri)
@@ -127,64 +125,66 @@ for (i in 1:6) {
       }
       else return(distri)
     }
+    Unew = U_prime
+    # Plot the recovered target distribution
+    x_vals <- seq(-5, 5, 0.1)
+    recovered_vals <- sapply(x_vals, function(x) Unew(x)$distri)
+    plot(x_vals, recovered_vals, type = 'l', 
+         main = "Recovered Target Distribution", 
+         xlab = "x", ylab = "Density")
   }
 
-  # Run a short HMC chain to find a point with high potential energy U
-  samples <- hmc(U = UNew, epsilon = 0.1, L = 10, current_q = 0)
+  #Run a short HMC chain to find a point with high potential energy U
+  samples <- hmc(U = Unew, epsilon = 0.1, L = 10, current_q = 0)
   x <- samples$chain
+  
+  # Find the peak of U directly from the HMC chain
+  highest_U_idx <- which.max(sapply(x, function(x) -Unew(x)$distri))
+  q_with_highest_U <- x[highest_U_idx]
 
   #Print out the histogram of the samples
   hist(x, breaks = 30, freq = FALSE, 
        main = substitute(paste("mixture gap mu=", a), list(a = mu_target)))
-  plot(x, UNew(x)$distri)
+  plot(x, Unew(x)$distri)
   
   #find the estimate_gaussian of U and peak information
-  peakU <- estimate_gaussian(x, UNew, M, T)
+  peakU <- estimate_gaussian(peak_pos = q_with_highest_U, M, T)
   g_info <- c(peakU$mean, peakU$sd, 1)
   print(g_info)
   
-  # Check if the new mean is too close to an existing one
-  existing_means <- sapply(gaussians, function(x) x$mean)
-  if (any(abs(existing_means - g_info[1]) < distance_threshold)) {
-    print(paste("Mean of Gaussian component", i, "is too close to an existing one. Skipping this component."))
-    skip_counter = skip_counter + 1  # Increase skip counter
-    if (skip_counter >= max_skips) {
-      print(paste("Skipped", max_skips, "iterations in a row. Stopping the loop."))
-      break
-    }
-    next
-  } else {
-    skip_counter = 0  # Reset skip counter if we didn't skip
-  }
-  
-  components <- Gaussian_component(peakU = peakU)
-  print(components)
-  
-  # Add the Gaussian component to the list
-  gaussians[[i]] <- list(mean = components$mean, sd = components$sd, height = components$height)
-  
-  # Calculate mixture weights
-  total_height <- sum(sapply(gaussians, function(x) x$height)) 
-  mixture_weights <- sapply(gaussians, function(x) x$height / total_height)
+  # Calculate total likelihood for the new component
+  new_likelihood <- sum(dnorm(x, mean = peakU$mean, sd = peakU$sd)) / peakU$sd
+
+  # Compute new component's weight
+  new_weight <- new_likelihood / (sum(total_likelihoods) + new_likelihood)
   
   # Check if the weight of the current component is below the threshold
-  if (mixture_weights[i] < weight_threshold) {
+  if (new_weight < weight_threshold) {
     print(paste("Weight of Gaussian component", i, "is below the threshold. Stopping the loop."))
     break
-  }
+  } else {
+    # Add the new likelihood to the total_likelihoods list
+    total_likelihoods <- c(total_likelihoods, new_likelihood)
+    
+    if (i == 1) {
+      # If it's the first iteration, all the weight goes to the first component
+      mixture_weights <- 1
+    } else {
+      # Save old weights before recalculating
+      old_weights <- mixture_weights
+      
+      # Recalculate weights: old weights stay the same relative to each other, new weight is calculated relative to total
+      mixture_weights <- c(old_weights, new_weight)
+    }
+    
+    # Add the Gaussian component to the list
+    gaussians[[i]] <- list(mean = peakU$mean, sd = peakU$sd, w = new_weight)
+  } 
 
   M = M
-  
-  T <- function(x, returnGrad = TRUE){
-    target_x = target(x)
-    distri = target_x$distri - M(x)$distri
-    if (returnGrad) {
-      grad = target_x$grad - M(x)$grad
-      return(list(distri = distri, grad = grad))
-    } else {
-      return(distri)
-    }
-  }  
+  plot(x, M(x)$distri)
+  T = tempered_T
+  plot(x, T(x)$distri)
 }
 
 
