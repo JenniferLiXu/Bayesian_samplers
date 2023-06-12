@@ -29,7 +29,7 @@ estimate_gaussian <- function(peak_pos, M , T) {
   opt_result <- optim(peak_pos, function(x) -T(x)$distri, function(x) -T(x)$grad, 
                       method ="BFGS",hessian = TRUE)
   peak_U <- opt_result$value
-  peak_pos <- opt_result$par
+  #peak_pos <- opt_result$par
   hessian <- optimHess(peak_pos, function(x) U(x)$distri) #Compute hessian using U
   
   # Estimate the quadratic form using gradient of U near the peak
@@ -66,8 +66,8 @@ M <- function(x) {
   #return(list(distri = distri, grad = grad, log_distri = log_distri, log_grad = log_grad))
 }
 
-#Update tempered taarget distribution 
-tempered_T <- function(x, returnGrad = TRUE){
+#Update  target distribution 
+T_prime <- function(x, returnGrad = TRUE){
   target_x = target(x)
   distri = target_x$distri - M(x)$distri
   if (returnGrad) {
@@ -117,7 +117,7 @@ for (i in 1:6) {
     # Adjusted UNew function by using U+log(M)
     U_prime <- function(x, returnGrad = TRUE) {
       M_x = M(x)
-      U_x = U(x)
+      target_x = target(x)
       distri = U_x$distri + log(M_x$distri)
       if(returnGrad){
         grad = U_x$grad + M_x$grad/M_x$distri
@@ -126,22 +126,23 @@ for (i in 1:6) {
       else return(distri)
     }
     Unew = U_prime
-    # Plot the recovered target distribution
+    # Plot the recovered U
     x_vals <- seq(-5, 5, 0.1)
     recovered_vals <- sapply(x_vals, function(x) Unew(x)$distri)
     plot(x_vals, recovered_vals, type = 'l', 
-         main = "Recovered Target Distribution", 
+         main = "Recovered U", 
          xlab = "x", ylab = "Density")
   }
-
+  
   #Run a short HMC chain to find a point with high potential energy U
   samples <- hmc(U = Unew, epsilon = 0.1, L = 10, current_q = 0)
   x <- samples$chain
+  (max_U <- samples$max_U)
   
   # Find the peak of U directly from the HMC chain
   highest_U_idx <- which.max(sapply(x, function(x) -Unew(x)$distri))
   q_with_highest_U <- x[highest_U_idx]
-
+  
   #Print out the histogram of the samples
   hist(x, breaks = 30, freq = FALSE, 
        main = substitute(paste("mixture gap mu=", a), list(a = mu_target)))
@@ -154,7 +155,7 @@ for (i in 1:6) {
   
   # Calculate total likelihood for the new component
   new_likelihood <- sum(dnorm(x, mean = peakU$mean, sd = peakU$sd)) / peakU$sd
-
+  
   # Compute new component's weight
   new_weight <- new_likelihood / (sum(total_likelihoods) + new_likelihood)
   
@@ -167,7 +168,6 @@ for (i in 1:6) {
     total_likelihoods <- c(total_likelihoods, new_likelihood)
     
     if (i == 1) {
-      # If it's the first iteration, all the weight goes to the first component
       mixture_weights <- 1
     } else {
       # Save old weights before recalculating
@@ -175,16 +175,19 @@ for (i in 1:6) {
       
       # Recalculate weights: old weights stay the same relative to each other, new weight is calculated relative to total
       mixture_weights <- c(old_weights, new_weight)
+      
+      mixture_weights[1:length(old_weights)] <- old_weights * (1 - mixture_weights[length(mixture_weights)])
+      
     }
     
     # Add the Gaussian component to the list
     gaussians[[i]] <- list(mean = peakU$mean, sd = peakU$sd, w = new_weight)
   } 
-
+  
   M = M
-  plot(x, M(x)$distri)
-  T = tempered_T
-  plot(x, T(x)$distri)
+  plot(x, log(M(x)$distri))
+  T = T_prime
+  
 }
 
 

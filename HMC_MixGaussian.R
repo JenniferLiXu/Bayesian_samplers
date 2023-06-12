@@ -9,6 +9,7 @@ hmc <- function(U, epsilon, L, current_q) {
   accept <- numeric(n_iter)
   swaps <- 0
   chain_lengths <- integer(n_iter - 1)
+  max_U <- -Inf  # Initialize maximum U
   
   for (i in 2:n_iter){
     q <- chain[i-1]
@@ -17,24 +18,25 @@ hmc <- function(U, epsilon, L, current_q) {
     
     # Leapfrog method: 
     # First make a half step for momentum 
-    #U_q <- U(q)
-    p <- p - epsilon / 2 * U(q)$grad  
+    U_q <- U(q)
+    p <- p - epsilon / 2 * U_q$grad
+    U(q, returnGrad = TRUE)    
     for (j in 1:L) {
       # Make a full step for the position
       q <- q + epsilon * p 
       # Make a full step for the momentum
       # Make a half step for momentum at the end
-      #U_q <- U(q)
-      p <- p - epsilon * U(q)$grad /(1 + (j==L))
+      U_q_new <- U(q)
+      p <- p - epsilon * U_q_new$grad/(1 + (j==L))
     }
 
     # Negate momentum at end of trajectory to make the proposal symmetric
     p <- -p
     # Evaluate potential and kinetic energies at start and end of trajectory
     #U_chain <- U(chain[i-1])
-    current_U <- U(chain[i-1])$distri
+    current_U <- U_q$distri
     current_K <- sum(current_p^2) / 2
-    proposed_U <- U(q)$distri
+    proposed_U <- U_q_new$distri
     proposed_K <- sum(p^2) / 2
     
     accept_prob <- exp((current_U + current_K) - (proposed_U + proposed_K))
@@ -42,12 +44,14 @@ hmc <- function(U, epsilon, L, current_q) {
     if (!is.na(accept_prob) && !is.nan(accept_prob) && runif(1) < accept_prob) {
       chain[i] <- q
       accept[i] <- 1  #Accept
+      max_U <- max(max_U, proposed_U)  # Update maximum U
     } else {
       chain[i] <- chain[i-1] 
       accept[i] <- 0   #Reject
     }
   
   }
-  return(list(chain = chain, accept_rate = accept))
+  return(list(chain = chain, accept_rate = accept, max_U = max_U))
   
 }
+
