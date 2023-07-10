@@ -1,12 +1,53 @@
 #target T
-target <- function(x, returnGrad = TRUE) {
+#mu <- c(5)
+#sigma1 <- 0.2
+#sigma2 <- 0.9
+#w <- 0.7
+#mu_target <- mu
+
+target_test <- function(x, returnGrad = TRUE) {
   sample_1 = w * dnorm(x, mean = 2, sd = sigma1)
   sample_2 = (1 - w) * dnorm(x, mean = 2 - mu_target, sd = sigma2)
   distri = sample_1 + sample_2
   if (returnGrad) {
-    grad = -(x-2)/sigma1 * sample_1 + -(x-2+mu_target)/sigma2  * sample_2
+    grad = -(x-2)/sigma1^2 * sample_1 + -(x-2+mu_target)/sigma2^2  * sample_2
     return(list(distri = distri, grad = grad))
   } else {
+    return(distri)
+  }
+}
+
+
+par(mfrow = c(1,1))
+#Example (unnormalised) target:
+likli <- function(x) {
+  # for df = 1, we have f(z) = log (1 / (π * (1 + z²)) =  -log(π) - log(1 + z²)
+  # sum(f(z))/500 
+  
+  #for df = 1, we have
+  sum(dt(x - faithful$waiting, 1, log = TRUE))/500
+}
+
+mus <- 400:1000/10
+lls <- sapply(mus, likli)
+
+plot(mus, exp(lls))
+
+target <- function(x, returnGrad = TRUE){
+  lls = sapply(x, likli)
+  distri = exp(lls)
+  if(returnGrad) {
+    grad = sapply(x, function(x_i) {
+      z = x_i - faithful$waiting
+      distri_i = exp(likli(x_i))
+      #for df = 1
+      distri_i * sum((-2* z/(1 + z^2)))/500
+      
+      #for df = 3
+      #distri_i * (-4 /3) * sum( z/(1 + (z^2)/3))/500
+    }) 
+    return(list(distri = distri, grad = grad))
+  } else{
     return(distri)
   }
 }
@@ -29,15 +70,20 @@ estimate_gaussian <- function(peak_pos, M , T) {
   opt_result <- optim(peak_pos, function(x) -T(x)$distri, function(x) -T(x)$grad, 
                       method ="BFGS",hessian = TRUE)
   peak_U <- opt_result$value
-  #peak_pos <- opt_result$par
-  hessian <- optimHess(peak_pos, function(x) U(x)$distri) #Compute hessian using U
+  peak_pos_T <- opt_result$par
+  #hessian <- optimHess(peak_pos, function(x) -U(x)$distri, function(x) -U(x)$grad) #Compute hessian using U
+  hessian <- optimHess(peak_pos_T, function(x) target(x)$distri, function(x) target(x)$grad)
+  
+  print(hessian)
+  #hessian <- opt_result$hessian
   
   # Estimate the quadratic form using gradient of U near the peak
   # the second derivative of U using finite difference method
-  mean <- peak_pos
-  sd <- sqrt(1 / hessian)
+  mean <- peak_pos_T
+  sd <- (-target(peak_pos_T)$distri/(hessian))^(1/2)
+  #sd <- sqrt(3)
   
-  return(list(peak_U = peak_U, mean = mean, sd = sd))
+  return(list(peak_U = peak_U, mean = mean, sd = sd, hessian = hessian))
 }
 
 #Use g_info(=c(mean, sd, weight)) to generate a gaussian distribution function
@@ -66,12 +112,15 @@ M <- function(x) {
   #return(list(distri = distri, grad = grad, log_distri = log_distri, log_grad = log_grad))
 }
 
-#Update  target distribution 
+#Update target distribution 
 T_prime <- function(x, returnGrad = TRUE){
   target_x = target(x)
   distri = target_x$distri - M(x)$distri
+  #distri_log = log(distri)
   if (returnGrad) {
     grad = target_x$grad - M(x)$grad
+    #grad_log = 1/distri * grad
+    #return(list(distri = distri, grad = grad, distri_log = distri_log, grad_log = grad_log))
     return(list(distri = distri, grad = grad))
   } else {
     return(distri)
@@ -81,43 +130,34 @@ T_prime <- function(x, returnGrad = TRUE){
 
 library(pracma)
 source("HMC_MixGaussian.R")
-par(mfrow = c(2,2))
 
 max_iterations <- 10
-
 
 #Initialize
 set.seed(120)
 n_iter <- 400
-mu <- c(5)
-sigma1 <- 0.5
-sigma2 <- 0.8
-w <- 0.7
-
-mu_target <- mu
 
 # Initialize the g_info and the list of Gaussian components
 g_info <-c(0,0,0)
 mixture_weights <- 1
 components <-list(mean = 0, sd = 0, w = 0)
 gaussians <- list(components)
-total_likelihoods <- numeric(0)
+total_T <- numeric(0)
 
 # Define a threshold for the weight below which the loop should stop
 weight_threshold <- 0.02
 
 # Run the loop
-for (i in 1:6) {
-  i = 3
+for (i in 1:max_iterations) {
+  #i=6
   if (i == 1){
     Unew = U
     T = target
-  }
-  else {
+  }else {
     # Adjusted UNew function by using U+log(M)
     U_prime <- function(x, returnGrad = TRUE) {
       M_x = M(x)
-      target_x = target(x)
+      U_x = U(x)
       distri = U_x$distri + log(M_x$distri)
       if(returnGrad){
         grad = U_x$grad + M_x$grad/M_x$distri
@@ -127,7 +167,7 @@ for (i in 1:6) {
     }
     Unew = U_prime
     # Plot the recovered U
-    x_vals <- seq(-5, 5, 0.1)
+    x_vals <- seq(10, 200, 0.1)
     recovered_vals <- sapply(x_vals, function(x) Unew(x)$distri)
     plot(x_vals, recovered_vals, type = 'l', 
          main = "Recovered U", 
@@ -135,29 +175,34 @@ for (i in 1:6) {
   }
   
   #Run a short HMC chain to find a point with high potential energy U
-  samples <- hmc(U = Unew, epsilon = 0.1, L = 10, current_q = 0)
+  samples <- hmc(U = Unew, epsilon = 0.1, L = 10, current_q = 50)
   x <- samples$chain
-  (max_U <- samples$max_U)
-  
   # Find the peak of U directly from the HMC chain
-  highest_U_idx <- which.max(sapply(x, function(x) -Unew(x)$distri))
-  q_with_highest_U <- x[highest_U_idx]
+  (min_q <- samples$min_q)
   
   #Print out the histogram of the samples
-  hist(x, breaks = 30, freq = FALSE, 
-       main = substitute(paste("mixture gap mu=", a), list(a = mu_target)))
-  plot(x, Unew(x)$distri)
+  #hist(x, breaks = 30, freq = FALSE, 
+  #     main = substitute(paste("mixture gap mu=", a), list(a = mu_target)))
+  hist(x, breaks = 30, freq = FALSE, main = "Histogram of samples")
+  Unew_x = sapply(x, function(x) Unew(x)$distri)
+  plot(x, Unew_x)
   
   #find the estimate_gaussian of U and peak information
-  peakU <- estimate_gaussian(peak_pos = q_with_highest_U, M, T)
+  peakU <- estimate_gaussian(peak_pos = min_q, M, T)
   g_info <- c(peakU$mean, peakU$sd, 1)
   print(g_info)
   
+  # If peakU$sd is NaN, stop the loop
+  if (is.nan(peakU$sd)) {
+    print("peakU$sd is NaN, stopping the loop.")
+    break
+  }
+  
   # Calculate total likelihood for the new component
-  new_likelihood <- sum(dnorm(x, mean = peakU$mean, sd = peakU$sd)) / peakU$sd
+  new_T <- T(peakU$mean)$distri* peakU$sd
   
   # Compute new component's weight
-  new_weight <- new_likelihood / (sum(total_likelihoods) + new_likelihood)
+  new_weight <- new_T / (sum(total_T) + new_T)
   
   # Check if the weight of the current component is below the threshold
   if (new_weight < weight_threshold) {
@@ -165,21 +210,15 @@ for (i in 1:6) {
     break
   } else {
     # Add the new likelihood to the total_likelihoods list
-    total_likelihoods <- c(total_likelihoods, new_likelihood)
+    total_T <- c(total_T, new_T)
     
     if (i == 1) {
       mixture_weights <- 1
-    } else {
-      # Save old weights before recalculating
-      old_weights <- mixture_weights
-      
+    } else {                             
       # Recalculate weights: old weights stay the same relative to each other, new weight is calculated relative to total
-      mixture_weights <- c(old_weights, new_weight)
-      
-      mixture_weights[1:length(old_weights)] <- old_weights * (1 - mixture_weights[length(mixture_weights)])
-      
+      mixture_weights <- total_T/sum(total_T)
+      #mixture_weights[1:length(old_weights)] <- old_weights * (1 - mixture_weights[length(mixture_weights)])
     }
-    
     # Add the Gaussian component to the list
     gaussians[[i]] <- list(mean = peakU$mean, sd = peakU$sd, w = new_weight)
   } 
@@ -192,7 +231,7 @@ for (i in 1:6) {
 
 
 # Plot the recovered target distribution
-x_vals <- seq(-5, 5, 0.1)
+x_vals <- seq(20, 120, 0.1)
 recovered_vals <- sapply(x_vals, function(x) M(x)$distri)
 plot(x_vals, recovered_vals, type = 'l', 
      main = "Recovered Target Distribution", 
