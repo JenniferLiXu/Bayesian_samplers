@@ -1,21 +1,21 @@
 #target T
-#mu <- c(5)
-#sigma1 <- 0.2
-#sigma2 <- 0.9
-#w <- 0.7
-#mu_target <- mu
+mu <- c(5)
+sigma1 <- 0.2
+sigma2 <- 0.9
+w <- 0.7
+mu_target <- mu
 
-target_test <- function(x, returnGrad = TRUE) {
-  sample_1 = w * dnorm(x, mean = 2, sd = sigma1)
-  sample_2 = (1 - w) * dnorm(x, mean = 2 - mu_target, sd = sigma2)
-  distri = sample_1 + sample_2
-  if (returnGrad) {
-    grad = -(x-2)/sigma1^2 * sample_1 + -(x-2+mu_target)/sigma2^2  * sample_2
-    return(list(distri = distri, grad = grad))
-  } else {
-    return(distri)
-  }
-}
+#target <- function(x, returnGrad = TRUE) {
+#  sample_1 = w * dnorm(x, mean = 2, sd = sigma1)
+#  sample_2 = (1 - w) * dnorm(x, mean = 2 - mu_target, sd = sigma2)
+#  distri = sample_1 + sample_2
+#  if (returnGrad) {
+#    grad = -(x-2)/sigma1^2 * sample_1 + -(x-2+mu_target)/sigma2^2  * sample_2
+#    return(list(distri = distri, grad = grad))
+#  } else {
+#    return(distri)
+#  }
+#}
 
 
 par(mfrow = c(1,1))
@@ -101,7 +101,8 @@ M <- function(x) {
   #log_grad = 0
   for (i in 1:length(gaussians)) {
     component <- gaussians[[i]]
-    info <- c(component$mean, component$sd, component$w)
+    weight_i <- mixture_weights[i]
+    info <- c(component$mean, component$sd, weight_i)
     g_new <- gaussian_pdf(x, info)
     distri <- distri + g_new$distri
     grad <- grad + g_new$grad
@@ -127,11 +128,11 @@ T_prime <- function(x, returnGrad = TRUE){
   }
 }
 
-
+ 
 library(pracma)
 source("HMC_MixGaussian.R")
 
-max_iterations <- 10
+max_iterations <- 15
 
 #Initialize
 set.seed(120)
@@ -140,16 +141,16 @@ n_iter <- 400
 # Initialize the g_info and the list of Gaussian components
 g_info <-c(0,0,0)
 mixture_weights <- 1
-components <-list(mean = 0, sd = 0, w = 0)
+components <-list(mean = 0, sd = 0)
 gaussians <- list(components)
-total_T <- numeric(0)
+total_T <- c()
 
 # Define a threshold for the weight below which the loop should stop
 weight_threshold <- 0.02
 
 # Run the loop
 for (i in 1:max_iterations) {
-  #i=6
+
   if (i == 1){
     Unew = U
     T = target
@@ -199,11 +200,11 @@ for (i in 1:max_iterations) {
   }
   
   # Calculate total likelihood for the new component
-  new_T <- T(peakU$mean)$distri* peakU$sd
+  new_T <- target(peakU$mean)$distri* peakU$sd
   
   # Compute new component's weight
   new_weight <- new_T / (sum(total_T) + new_T)
-  
+
   # Check if the weight of the current component is below the threshold
   if (new_weight < weight_threshold) {
     print(paste("Weight of Gaussian component", i, "is below the threshold. Stopping the loop."))
@@ -212,48 +213,24 @@ for (i in 1:max_iterations) {
     # Add the new likelihood to the total_likelihoods list
     total_T <- c(total_T, new_T)
     
-    if (i == 1) {
-      mixture_weights <- 1
-    } else {                             
-      # Recalculate weights: old weights stay the same relative to each other, new weight is calculated relative to total
-      mixture_weights <- total_T/sum(total_T)
-      #mixture_weights[1:length(old_weights)] <- old_weights * (1 - mixture_weights[length(mixture_weights)])
-    }
+    # Recalculate weights: old weights stay the same relative to each other, new weight is calculated relative to total
+    mixture_weights <- total_T/sum(total_T)
+
     # Add the Gaussian component to the list
-    gaussians[[i]] <- list(mean = peakU$mean, sd = peakU$sd, w = new_weight)
+    gaussians[[i]] <- list(mean = peakU$mean, sd = peakU$sd)
   } 
   
   M = M
-  plot(x, log(M(x)$distri))
+  #plot(x, log(M(x)$distri))
   T = T_prime
   
 }
 
-
 # Plot the recovered target distribution
 x_vals <- seq(20, 120, 0.1)
+recovered_vals <- sapply(x_vals, function(x) gaussian_pdf(x, g_info)$distri)
 recovered_vals <- sapply(x_vals, function(x) M(x)$distri)
-plot(x_vals, recovered_vals, type = 'l', 
+plot(x_vals, target(x_vals)$distri, type = 'l', 
      main = "Recovered Target Distribution", 
      xlab = "x", ylab = "Density")
-
-# Define the new target distribution T'' = T/M
-# Define the potential energy function U'' and its gradient for T''
-U_double_prime <- function(x ,returnGrad = TRUE) {
-  U_x = U_prime(x)
-  G_x = M(x)
-  distri = U_x$distri + log(G_x$distri)
-  if(returnGrad){
-    grad = U_x$grad + G_x$grad/G_x$distri
-    return(list(distri = distri, grad = grad))
-  }
-  else return(distri)
-}
-
-# Run HMC for the updated target distribution T''
-n_iter <- 1000
-samples_double_prime <- hmc(U = U_double_prime, epsilon = 0.1, L = 10, current_q = 0)
-x_double_prime <- samples_double_prime$chain
-hist(x_double_prime, breaks = 30, freq = FALSE, main = substitute(paste("mixture gap mu=", a), list(a = mu_target) ))
-plot(U(x_double_prime)$distri)
-
+lines(x_vals, recovered_vals, col = "blue")
