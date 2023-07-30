@@ -6,10 +6,11 @@ hmc <- function(U, epsilon, L, current_q) {
   # current_q: the current position 
   chain <- numeric(n_iter)
   chain[1] <- current_q
+  min_q <- current_q
   accept <- numeric(n_iter)
   swaps <- 0
   chain_lengths <- integer(n_iter - 1)
-  max_U <- -Inf  # Initialize maximum U
+  min_U <- Inf  # Initialize maximum U
   
   for (i in 2:n_iter){
     q <- chain[i-1]
@@ -20,7 +21,6 @@ hmc <- function(U, epsilon, L, current_q) {
     # First make a half step for momentum 
     U_q <- U(q)
     p <- p - epsilon / 2 * U_q$grad
-    U(q, returnGrad = TRUE)    
     for (j in 1:L) {
       # Make a full step for the position
       q <- q + epsilon * p 
@@ -42,16 +42,20 @@ hmc <- function(U, epsilon, L, current_q) {
     accept_prob <- exp((current_U + current_K) - (proposed_U + proposed_K))
     
     if (!is.na(accept_prob) && !is.nan(accept_prob) && runif(1) < accept_prob) {
+      #print(q)
       chain[i] <- q
       accept[i] <- 1  #Accept
-      max_U <- max(max_U, proposed_U)  # Update maximum U
+      if (proposed_U < min_U) {
+        min_q <- q
+        min_U <- proposed_U # update max_q using max_U
+      }
     } else {
       chain[i] <- chain[i-1] 
       accept[i] <- 0   #Reject
     }
   
   }
-  return(list(chain = chain, accept_rate = accept, max_U = max_U))
+  f_max <- target(min_q)$distri
+  return(list(chain = chain, accept_rate = accept, min_q = min_q, f_max = f_max))
   
 }
-
