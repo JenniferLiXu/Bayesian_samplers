@@ -79,15 +79,23 @@ chain_char <- function(chain){
 }
 
 
+
 for (j in 1:length(mu)){
   mu_target <- mu[j]
   
+  library(R.utils)
+  start_time <- Sys.time()
   source("MH_MCMC.R")
   #generate samples using the Metropolis-Hastings algorithm
   result <- MH_MCMC(target, proposal, 0, n_iter)
   
   #source("HMC_MixGaussian.R")
   #result <- hmc(U = U, epsilon = 0.25, L = 5, current_q = 0)
+  
+  end_time <- Sys.time()
+  running_time <- end_time - start_time
+  #Output the running time
+  print(running_time)
   
   x <- result$chain
   
@@ -124,3 +132,4 @@ for (j in 1:length(mu)){
   plot(x[-(1:burnin)], type = "l", xlab = "", main = "Chain values of x", )
   print(paste("The estimated weight w1:",chain_char(x[-(1:burnin)])$w_above))
 }
+

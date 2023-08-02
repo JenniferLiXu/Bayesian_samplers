@@ -4,13 +4,15 @@ hmc <- function(U, epsilon, L, current_q) {
   # epsilon: the step size 
   # L: the number of steps
   # current_q: the current position 
-  chain <- numeric(n_iter)
+  
+  chain <- numeric()
   chain[1] <- current_q
   min_q <- current_q
   accept <- numeric(n_iter)
   swaps <- 0
   chain_lengths <- integer(n_iter - 1)
   min_U <- Inf  # Initialize maximum U
+  intermediate_results <- numeric()
   
   for (i in 2:n_iter){
     q <- chain[i-1]
@@ -53,9 +55,9 @@ hmc <- function(U, epsilon, L, current_q) {
       chain[i] <- chain[i-1] 
       accept[i] <- 0   #Reject
     }
-  
+    f_max <- target(min_q)$distri
   }
-  f_max <- target(min_q)$distri
+  
   return(list(chain = chain, accept_rate = accept, min_q = min_q, f_max = f_max))
   
 }

@@ -45,3 +45,4 @@ MH_MCMC <- function(target, proposal, x_init, n_iter) {
   }
   return(list(chain = chain, f_max = f_max))
 }
+
