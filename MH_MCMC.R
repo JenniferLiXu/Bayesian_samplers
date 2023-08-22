@@ -3,8 +3,8 @@ MH_MCMC <- function(target, proposal, x_init, n_iter) {
   #proposal: the proposal distribution function
   #x_init: starting value of the chain
   #n_iter: number of iterations
-  chain <- numeric(n_iter)
-  accept <- numeric(n_iter)
+  chain <- numeric()
+  accept <- numeric()
   chain[1] <- x_init
   f_value <- target(x_init)$distri
   f_max <- f_value
@@ -13,8 +13,15 @@ MH_MCMC <- function(target, proposal, x_init, n_iter) {
   swap_count <- 0
   chain_lengths <- integer(n_iter)
   chain_length <- 0
+  max_time <- 4
   
   for(i in 2:n_iter){
+    # # Check if the maximum time has been exceeded
+    # if (difftime(Sys.time(), start_time, units = "secs") > max_time) {
+    #   cat("Maximum time of", max_time, "seconds exceeded. Stopping MH-MCMC.\n")
+    #   break
+    # }
+    
     # Generate candidate sample
     y <- proposal(chain[i - 1])
     f_proposed <- target(y)$distri

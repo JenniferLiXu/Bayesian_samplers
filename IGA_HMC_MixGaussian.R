@@ -1,59 +1,30 @@
 #Initialize
 set.seed(123)
 n_iter <- 400
-start_point <- 50
+
+#target T
+mu <- c(14)
+sigma1 <- 1
+sigma2 <- 2
+w <- 0.7
+mu_target <- mu
+start_position <- 0
+# Small regularization term in the denominator to avoid extremely large values
+epsilon <- 0.05
+
+target <- function(x, returnGrad = TRUE) {
+ sample_1 = w * dnorm(x, mean = 2, sd = sigma1) 
+ sample_2 = (1 - w) * dnorm(x, mean = 2 - mu_target, sd = sigma2)
+ distri = sample_1 + sample_2
+ if (returnGrad) {
+   grad = -(x-2)/sigma1^2 * sample_1 + -(x-2+mu_target)/sigma2^2 * sample_2
+   return(list(distri = distri, grad = grad))
+ } else {
+   return(distri)
+ }
+}
 
 par(mfrow = c(1,1))
-#Example (unnormalised) target:
-likli <- function(x) {
-  # for df = 1, we have f(z) = log (1 / (π * (1 + z²)) =  -log(π) - log(1 + z²)
-  # sum(f(z))/500 
-  
-  #for df = 1, we have
-  sum(dt(x - faithful$waiting, 1, log = TRUE))/500
-}
-
-mus <- 400:1000/10
-lls <- sapply(mus, likli)
-
-plot(mus, exp(lls))
-
-unnormalize_target <- function(x, returnGrad = TRUE){
-  lls = sapply(x, likli)
-  distri = exp(lls)
-  if(returnGrad) {
-    grad = sapply(x, function(x_i) {
-      z = x_i - faithful$waiting
-      distri_i = exp(likli(x_i))
-      #for df = 1
-      distri_i * sum((-2* z/(1 + z^2)))/500
-      
-      #for df = 3
-      #distri_i * (-4 /3) * sum( z/(1 + (z^2)/3))/500
-    }) 
-    return(list(distri = distri, grad = grad))
-  } else{
-    return(distri)
-  }
-}
-# Calculate the total area under the curve by integrating over the entire range
-total_area <- integrate(Vectorize(function(x) unnormalize_target(x, returnGrad = FALSE)), lower = 40, upper = 100)$value
-
-target <- function(x, returnGrad = TRUE){
-  unnormalize_target_x = unnormalize_target(x)
-  # normalize the distribution
-  normalized_distri = unnormalize_target_x$distri / total_area
-  if(returnGrad) {
-    # normalize the gradient
-    normalized_distri = normalized_distri
-    normalized_grad = unnormalize_target_x$grad / total_area
-    
-    return(list(distri = normalized_distri, grad = normalized_grad))
-  } else{
-    # normalize only the distribution
-    return(normalized_distri)
-  }
-}
 
 #potential energy
 U <- function(q, returnGrad = TRUE) {
@@ -91,8 +62,6 @@ estimate_gaussian <- function(peak_pos, M , T) {
 gaussian_pdf <- function(x, g_info) {
   distri = g_info[3] * dnorm(x, mean = g_info[1], sd = g_info[2])
   grad = - (x - g_info[1])/g_info[2] * distri
-  #distri = g_info[3] * exp(-(x - g_info[1])^2 / (2 * g_info[2]^2))
-  #grad = - (x - g_info[1])/g_info[2] * distri
   return(list(distri = distri, grad = grad))  
 }  
 
@@ -139,33 +108,27 @@ components <-list(mean = 0, sd = 0)
 gaussians <- list(components)
 total_T <- c()
 
-
 # Define a threshold for the weight below which the loop should stop
 weight_threshold <- 0.02
 weight_diff_threshold <- 0.003
 
-# Small regularization term in the denominator to avoid extremely large values
-reg_epsilon <- 0
 
-library(R.utils)
-start_time <- Sys.time()
-# Run the loop
-#withTimeout({
 for (i in 1:max_iterations) {
+
   if (i == 1){
     Unew = U
     T = target
   }else {
-    # Adjusted UNew function by using U+log(M)
+    # Adjusted UNew function by using U+log(M), which is -log(target/M)
     U_prime <- function(x, returnGrad = TRUE) {
       M_x = M(x)
       target_x = target(x)
       U_x = U(x)
-      distri = -log(target_x$distri/(M_x$distri+ reg_epsilon))
+      distri = -log(target_x$distri/(M_x$distri+ epsilon))
       # distri = -log(target_x$distri - 0.02*M_x$distri)
       # distri = U_x$distri + log(M_x$distri)
       if(returnGrad){
-        grad = U_x$grad + M_x$grad/(M_x$distri+reg_epsilon)
+        grad = U_x$grad + M_x$grad/(M_x$distri+epsilon)
         # grad = -(target_x$grad-0.02*M_x$grad)/(target_x$distri - 0.02*M_x$distri)
         return(list(distri = distri, grad = grad))
       }
@@ -173,14 +136,14 @@ for (i in 1:max_iterations) {
     }
     Unew = U_prime
     # Plot the recovered U
-    x_vals <- seq(40, 100, 0.1)
+    x_vals <- seq(-50, 50, 0.1)
     recovered_vals <- sapply(x_vals, function(x) Unew(x)$distri)
-    plot(x_vals, recovered_vals, type = 'l', 
-         main = "Recovered U", 
+    plot(x_vals, recovered_vals, type = 'l',
+         main = "Recovered U",
          xlab = "x", ylab = "Density")
   }
   #Run a short HMC chain to find a point with high potential energy U
-  samples <- hmc(U = Unew, epsilon = 0.1, L = 10, current_q = start_point)
+  samples <- hmc(U = Unew, epsilon = 0.25, L = 10, current_q = start_position)
   x <- samples$chain
   # Find the peak of U directly from the HMC chain
   (min_q <- samples$min_q)
@@ -229,21 +192,14 @@ for (i in 1:max_iterations) {
   T = T_prime
   
 }
-#}, timeout = 5)  # Time limit of 5 second
-end_time <- Sys.time()
-
-running_time <- end_time - start_time
-
-print(running_time)
-
 
 # Plot the recovered target distribution
-x_vals <- seq(20, 120, 0.1)
+x_vals <- seq(-20, 20, 0.1)
 recovered_vals <- sapply(x_vals, function(x) gaussian_pdf(x, g_info)$distri)
 recovered_vals <- sapply(x_vals, function(x) M(x)$distri)
 plot(x_vals, target(x_vals)$distri, type = 'l', 
      main = "Recovered Target Distribution", 
-     ylim = c(0, 0.06),
+     ylim = c(0, 0.7),
      xlab = "x", ylab = "Density", col = "black")
 lines(x_vals, recovered_vals, col = "blue")
 
@@ -253,7 +209,6 @@ legend("topright", # place it at the top right corner
        col = c("black", "blue"), # colors should be in the same order
        lty = 1, # line types
        cex = 0.5) # control size of legend
-
 
 ##Importance sampling
 
@@ -280,12 +235,12 @@ sample_from_mixture <- function(n) {
 }
 
 # Draw 1000 samples
-is_samples <- sample_from_mixture(2000)
+is_samples <- sample_from_mixture(1000)
 
 # Compute importance weights
-is_weights <- numeric(2000)
+is_weights <- numeric(1000)
 
-for(i in 1:2000) {
+for(i in 1:1000) {
   is_weights[i] <- target(is_samples[i])$distri / M(is_samples[i])$distri
 }
 
@@ -296,7 +251,7 @@ is_weights <- is_weights / sum(is_weights)
 # target \int \sin(x) p(x) dx
 esti_sin <- sum(is_weights * sin(is_samples))
 # numerical integral
-num_sin <- integrate(function(x) sin(x) * target(x)$distri, 40, 100)
+num_sin <- integrate(function(x) sin(x) * target(x)$distri, -Inf, Inf)
 # difference between estimated value and numerical integral
 cat("difference:", abs(esti_sin - num_sin$value), "\n")
 
@@ -304,16 +259,3 @@ cat("difference:", abs(esti_sin - num_sin$value), "\n")
 x <- is_samples
 hist(is_samples, breaks = 50, freq = FALSE, main = "Histogram of samples")
 curve(target(x)$distri, add = TRUE, col = "red", lwd = 2)
-
-# Add legend
-legend("topright", # place it at the top right corner
-       legend = c("Target Distribution", "Recovered Distribution"), 
-       col = c("red", "blue"), # colors should be in the same order
-       lty = 1, # line types
-       cex = 0.35) # control size of legend
-
-# resampled_indices <- sample(1:length(is_samples), length(is_samples), 
-#                             replace=TRUE, prob=is_weights)
-# resampled_samples <- is_samples[resampled_indices]
-# x <- resampled_samples
-# hist(is_samples, breaks = 50, freq = FALSE, main = "Histogram of resampled samples")

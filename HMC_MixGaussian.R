@@ -8,13 +8,18 @@ hmc <- function(U, epsilon, L, current_q) {
   chain <- numeric()
   chain[1] <- current_q
   min_q <- current_q
-  accept <- numeric(n_iter)
+  accept <- numeric()
   swaps <- 0
   chain_lengths <- integer(n_iter - 1)
   min_U <- Inf  # Initialize maximum U
-  intermediate_results <- numeric()
-  
+  max_time <- 4
   for (i in 2:n_iter){
+    # # Check if the maximum time has been exceeded
+    # if (difftime(Sys.time(), start_time, units = "secs") > max_time) {
+    #   cat("Maximum time of", max_time, "seconds exceeded. Stopping HMC.\n")
+    #   break
+    # }
+    
     q <- chain[i-1]
     p <- rnorm(length(q),0,1)
     current_p <- p

@@ -1,5 +1,5 @@
 set.seed(123)
-n_iter <- 400
+n_iter <- 200000
 
 par(mfrow = c(1,1))
 #Example (unnormalised) target:
@@ -107,10 +107,10 @@ start_time <- Sys.time()
   
   source("MH_MCMC.R")
   #generate samples using the Metropolis-Hastings algorithm
-  result <- MH_MCMC(target, proposal, 50, n_iter)
+  #result <- MH_MCMC(target, proposal, 50, n_iter)
   
-  #source("HMC_MixGaussian.R")
-  #result <- hmc(U = U, epsilon = 0.25, L = 5, current_q = 50)
+  source("HMC_MixGaussian.R")
+  result <- hmc(U = U, epsilon = 0.25, L = 5, current_q = 50)
 
 #}, timeout = 5, onTimeout = "silent")  # Time limit of 5s
 
@@ -121,23 +121,34 @@ running_time <- end_time - start_time
 print(running_time)
 x <- result$chain
 
+#target \int \sin(x) p(x) dx
+esti_sin <- mean(sin(x))
+
+#numerical integral
+num_sin <- integrate(function(x) sin(x) * target(x)$distri, 40, 100)
+
+#difference between estimated value and numerical integral
+cat("difference:", abs(esti_sin - num_sin$value), "\n")
 
 
+old_mar <- par("mar")
+par(mar=c(2,2,2,2))
 # Plot the samples and the target distribution
 hist(x, breaks = 30, freq = FALSE, 
-     main = "Histogram of samples(MH-MCMC)",
-     #main = "Histogram of samples(HMC)",
-     ylim = c(0, 0.035)
+     #main = "Histogram of samples(MH-MCMC)",
+     main = "Histogram of samples(HMC)",
+     ylim = c(0, 0.03)
 )
 x_vals <- seq(20, 120, 0.1)
 lines(x_vals, target(x_vals)$distri, type = 'l', col = "black")
 
 library(mixtools)
 #we are fitting a mixture of two Gaussian distributions
-fit <- normalmixEM(x, k = 2)
+fit <- normalmixEM(x, k = 3)
 # Plot the fitted mixture model
 curve(fit$lambda[1] * dnorm(x, fit$mu[1], sqrt(fit$sigma[1]^2)) +
-        fit$lambda[2] * dnorm(x, fit$mu[2], sqrt(fit$sigma[2]^2)),
+        fit$lambda[2] * dnorm(x, fit$mu[2], sqrt(fit$sigma[2]^2))+
+        fit$lambda[3] * dnorm(x, fit$mu[3], sqrt(fit$sigma[3]^2)),
       from = min(x), to = max(x), add = TRUE, col = "blue")
 
 # Add legend
@@ -145,7 +156,8 @@ legend("topright", # place it at the top right corner
        legend = c("Target Distribution", "Recovered Distribution"), 
        col = c("black", "blue"), # colors should be in the same order
        lty = 1, # line types
-       cex = 0.5) # control size of legend
+       cex = 0.35) # control size of legend
 
 print(fit$mu)
-
+print(fit$sigma)
+print(fit$lambda)
